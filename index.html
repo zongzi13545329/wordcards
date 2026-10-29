@@ -172,6 +172,21 @@ mark { background: var(--hi); color: var(--hi-ink); border-radius: 3px; padding:
 .srcsel select { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 8px 10px; }
 .modegroup { display: grid; gap: 6px; }
 .modes.three { grid-template-columns: repeat(3, 1fr); }
+.modes.two { grid-template-columns: repeat(2, 1fr); }
+.answers.four { grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.answers.four .ans { font-size: 15px; padding: 14px 2px; }
+.sentbox { width: 100%; margin-top: 14px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--paper); padding: 10px 12px; font: 400 17px/1.5 var(--f-word); resize: vertical; }
+.sentbox:focus { outline: none; border-color: var(--accent); }
+.sdres { margin-top: 14px; font: 400 18px/1.8 var(--f-word); }
+.sdres .sok { color: var(--good); }
+.sdres .swr { color: var(--bad); font-weight: 600; }
+.sdres .swr s { color: var(--ink-3); font-weight: 400; font-size: .85em; }
+.sdres .smi { color: var(--ink-3); text-decoration: underline dotted; text-underline-offset: 4px; }
+.sdres .sx { color: var(--ink-3); font-size: .85em; }
+.sdres .hd { border-bottom: 2px solid var(--accent); }
+.indexcard.plain { background-image: none; padding-top: 20px; }
+.indexcard.plain::before { display: none; }
+.clozeq.colq { text-align: center; font-size: 22px; }
 .opts { display: grid; gap: 10px; margin-top: 14px; }
 .opt { display: flex; align-items: center; gap: 12px; text-align: left; border: 1.5px solid var(--line); background: var(--card); border-radius: 14px; padding: 13px 14px; font-size: 15px; line-height: 1.4; }
 .opt .ow { font: 500 18px var(--f-word); }
@@ -283,6 +298,8 @@ const I = {
   quiz: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8" cy="9.5" r="1.2"/><circle cx="8" cy="14.5" r="1.2"/><path d="M12 9.5h5M12 14.5h5"/></svg>',
   quiz2: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h9M4 17h6"/><path d="m14 16 2.5 2.5L21 14"/></svg>',
   cloze: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 15h4M17 15h4"/><path d="M9 15h6" stroke-dasharray="1.5 2.5"/><path d="M5 9h14"/></svg>',
+  sdict: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9h3l4-3.5v13L6 15H3z"/><path d="M14 9h7M14 13h7M14 17h4"/></svg>',
+  colloc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="8" width="8" height="8" rx="2"/><rect x="13.5" y="8" width="8" height="8" rx="2" stroke-dasharray="2 2"/><path d="M10.5 12h3"/></svg>',
   play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
   pause: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>',
   prev: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM9.5 12 18 18V6z"/></svg>',
@@ -429,7 +446,7 @@ function pickVoice(lang) {
   const l = lang.toLowerCase(); const exact = voices.filter(v => v.lang.replace('_', '-').toLowerCase() === l);
   return exact.find(v => /google|natural|premium|enhanced/i.test(v.name)) || exact[0] || voices.find(v => v.lang.toLowerCase().startsWith(l.slice(0, 2)));
 }
-function sysSpeak(text, lang, { cancel = false } = {}) {
+function sysSpeak(text, lang, { cancel = false, slow = false } = {}) {
   if (!TTS || !text) return Promise.resolve();
   return new Promise(res => {
     try {
@@ -437,7 +454,7 @@ function sysSpeak(text, lang, { cancel = false } = {}) {
       const u = new SpeechSynthesisUtterance(text);
       u.lang = lang === 'zh' ? 'zh-CN' : S.settings.accent;
       const v = pickVoice(u.lang); if (v) u.voice = v;
-      u.rate = lang === 'zh' ? 1 : S.settings.rate;
+      u.rate = lang === 'zh' ? 1 : S.settings.rate * (slow ? 0.75 : 1);
       let done = false; const fin = () => { if (!done) { done = true; res(); } };
       u.onend = fin; u.onerror = fin;
       setTimeout(fin, 1500 + text.length * 140);   /* some Android builds never fire onend */
@@ -450,12 +467,12 @@ const AUD = new Audio(); AUD.preload = 'auto';
 const onlineUrl = (text, lang) => lang === 'zh'
   ? 'https://dict.youdao.com/dictvoice?le=zh&audio=' + encodeURIComponent(text)
   : 'https://dict.youdao.com/dictvoice?type=' + (S.settings.accent === 'en-GB' ? 1 : 2) + '&audio=' + encodeURIComponent(text);
-function playOnline(text, lang) {
+function playOnline(text, lang, slow) {
   return new Promise(res => {
     let done = false; const fin = ok => { if (!done) { done = true; res(ok); } };
     try {
       AUD.pause(); AUD.src = onlineUrl(text, lang);
-      AUD.playbackRate = lang === 'zh' ? 1 : Math.min(1.2, Math.max(0.6, S.settings.rate + 0.1));
+      AUD.playbackRate = lang === 'zh' ? 1 : Math.min(1.2, Math.max(0.5, (S.settings.rate + 0.1) * (slow ? 0.75 : 1)));
       AUD.onended = () => fin(true); AUD.onerror = () => fin(false);
       const p = AUD.play(); if (p && p.catch) p.catch(() => fin(false));
       setTimeout(() => fin(!AUD.error), 4000 + text.length * 160);
@@ -468,7 +485,7 @@ async function speak(text, lang, opts = {}) {
   if (!text) return;
   if (S.settings.voice === 'online' && navigator.onLine !== false) {
     if (opts.cancel) { try { speechSynthesis.cancel(); } catch {} }
-    if (await playOnline(text, lang)) return;
+    if (await playOnline(text, lang, opts.slow)) return;
   }
   if (hasSysVoice(lang)) return sysSpeak(text, lang, opts);
 }
@@ -552,7 +569,8 @@ function markWrong(w) { const p = P(); if (!p.roundWrong.includes(w)) p.roundWro
 function answer(known) {
   const w = curWord(); if (!w || S.reveal) return;
   const p = P(); const e = W()[w.w];
-  S.last = { w: w.w, pos: p.pos, prevEntry: e ? JSON.parse(JSON.stringify(e)) : null, wasInRound: p.roundWrong.includes(w.w) };
+  S.last = { w: w.w, pos: p.pos, prevEntry: e ? JSON.parse(JSON.stringify(e)) : null, wasInRound: p.roundWrong.includes(w.w), prevSrs: p.srs && p.srs[w.w] ? { ...p.srs[w.w] } : null };
+  srsFromDrill(w.w, known);
   if (!known) markWrong(w.w);
   p.seen = p.seen || {}; p.seen[w.w] = 1; S.last.stat = known ? 'known' : 'unknown';
   p.pos++; S.reveal = { w: w.w, known };
@@ -561,7 +579,7 @@ function answer(known) {
 }
 function forgot() {
   if (!S.reveal || !S.reveal.known) return;
-  markWrong(S.reveal.w); S.reveal = { w: S.reveal.w, known: false }; saveProg();
+  markWrong(S.reveal.w); srsFromDrill(S.reveal.w, false); S.reveal = { w: S.reveal.w, known: false }; saveProg();
   if (S.last && S.last.stat === 'known') { S.last.stat = 'unknown'; bumpStat('known', -1); bumpStat('unknown'); }
   render();
 }
@@ -575,6 +593,7 @@ function undo() {
   if (!l.wasInRound) p.roundWrong = p.roundWrong.filter(x => x !== l.w);
   if (l.prevEntry) W()[l.w] = l.prevEntry; else delete W()[l.w];
   if (l.stat) { bumpStat('seen', -1); bumpStat(l.stat, -1); }
+  p.srs = p.srs || {}; if (l.prevSrs) p.srs[l.w] = l.prevSrs; else delete p.srs[l.w];
   S.last = null; S.reveal = null; saveProg(); render(); autoSay();
 }
 function nextCard() {
@@ -589,7 +608,8 @@ function nextCard() {
 function autoSay() { if (S.view === 'drill' && !S.reveal && S.settings.autoSpeak) { const w = curWord(); if (w) say(w.w); } }
 function startRound(scope) {
   const p = P();
-  const list = scope === 'wrong' ? p.roundWrong.slice() : S.words.map(w => w.w);
+  const srs = p.srs || {};
+  const list = scope === 'wrong' ? p.roundWrong.slice() : S.words.filter(w => !(srs[w.w] && srs[w.w].easy)).map(w => w.w);
   p.round++; p.scope = scope; p.order = S.settings.shuffle ? shuffle(list) : list; p.pos = 0; p.roundWrong = []; p.finished = false;
   S.last = null; S.reveal = null; saveProg(true); S.view = 'drill'; render(); autoSay();
 }
@@ -649,6 +669,9 @@ function viewHome() {
       <button class="tile" data-go="wrong"><span class="label">错词本</span><b>${wrongN}</b><span class="small muted">所有词书合并</span></button>
       <button class="tile warn" data-act="open-drill"><span class="label">本轮不认识</span><b>${p.roundWrong.length}</b><span class="small muted">本轮结束后可重刷</span></button>
     </div>
+    ${(() => { const r = srsSummary(); return `<section class="card"><div class="row"><span class="label grow">今日复习 · 间隔重复</span>${r.easy ? `<span class="small muted">已斩 ${r.easy} 个太简单的词</span>` : ''}</div>
+      <div class="roundline"><span class="big">${r.due}</span><span class="muted">个词今天到期${r.tomorrow ? ` · 明天 ${r.tomorrow} 个` : ''}</span></div>
+      <div style="margin-top:12px">${r.due ? '<button class="btn primary big" data-act="open-review">开始复习</button>' : `<p class="small muted" style="margin:0">${r.tracked ? '今天的复习已经清空了。' : '速刷过的词会按遗忘曲线自动排进复习：不认识的明天复习，认识的 3 天后复习。'}</p>`}</div></section>`; })()}
     <section class="card" style="display:grid;gap:12px"><div class="row"><span class="label grow">整本书练习</span><span class="small muted">每组随机 ${S.settings.sessionSize} 词 · 错的自动进错词本</span></div>${modesHTML('book', S.words.length)}</section>
     ${roundsChart(p)}
     <p class="small muted" style="padding:0 4px">判断「认识 / 不认识」快速过完整本书；不认识的词自动进错词本，下一刷只刷错过的词，直到全部消灭。</p>
@@ -793,42 +816,90 @@ function viewSettings() {
 }
 
 /* ---------- Practice modes: the wrong-word book, or a random session from the whole book ---------- */
-const QUIZ = new Set(['quiz-en', 'quiz-zh', 'cloze']);
-const MODE_NAMES = { cards: '沉浸刷词', listen: '随身听', spell: '随手拼', dict: '听写', 'quiz-en': '英选中', 'quiz-zh': '中选英', cloze: '例句填空' };
+const QUIZ = new Set(['quiz-en', 'quiz-zh', 'cloze', 'colloc']);
+const MODE_NAMES = { cards: '沉浸刷词', listen: '随身听', spell: '随手拼', dict: '听写', 'quiz-en': '英选中', 'quiz-zh': '中选英', cloze: '例句填空', colloc: '搭配填空', sdict: '例句听写', review: '今日复习' };
 function modesHTML(scope, n) {
   const b = (k, ic) => `<button class="mode" data-mode="${k}" data-scope="${scope}" ${n ? '' : 'disabled'}>${ic}${MODE_NAMES[k]}</button>`;
-  return `<div class="modegroup"><span class="label">记忆</span><div class="modes">${b('cards', I.cards)}${b('listen', I.head)}${b('spell', I.abc)}${b('dict', I.pen)}</div></div>
-    <div class="modegroup"><span class="label">测验</span><div class="modes three">${b('quiz-en', I.quiz)}${b('quiz-zh', I.quiz2)}${b('cloze', I.cloze)}</div></div>`;
+  return `<div class="modegroup"><span class="label">记忆</span><div class="modes two">${b('cards', I.cards)}${b('listen', I.head)}</div></div>
+    <div class="modegroup"><span class="label">拼写与听写</span><div class="modes three">${b('spell', I.abc)}${b('dict', I.pen)}${b('sdict', I.sdict)}</div></div>
+    <div class="modegroup"><span class="label">测验</span><div class="modes">${b('quiz-en', I.quiz)}${b('quiz-zh', I.quiz2)}${b('cloze', I.cloze)}${b('colloc', I.colloc)}</div></div>`;
 }
 const shortM = w => { const s = String(w.m || '').replace(/[①②③④⑤]\s*/g, '').split(/[；;]/).slice(0, 2).join('；'); return s.length > 28 ? s.slice(0, 27) + '…' : s; };
-function clozeOf(w) {
-  if (!w || !w.ex || !w.ex.length) return null;
+function headRe(w) {
   const toks = w.w.toLowerCase().replace(/^(be|to)\s+/, '').split(/\s+/).filter(t => !['sb', 'sth', "one's", 'someone', 'something', 'a/an'].includes(t));
   if (!toks.length) return null;
   const part = t => { let s = t; if (s.length > 4 && /e$/.test(s)) s = s.slice(0, -1); else if (s.length > 5 && /y$/.test(s)) s = s.slice(0, -1); return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + "[a-z]*"; };
-  let re; try { re = new RegExp('\\b' + toks.map(part).join('\\s+') + '\\b', 'i'); } catch { return null; }
+  try { return new RegExp('\\b' + toks.map(part).join('\\s+') + '\\b', 'i'); } catch { return null; }
+}
+function clozeOf(w) {
+  if (!w || !w.ex || !w.ex.length) return null; const re = headRe(w); if (!re) return null;
   for (const e of w.ex) { const mm = e.en.match(re); if (mm) return { before: e.en.slice(0, mm.index), ans: mm[0], after: e.en.slice(mm.index + mm[0].length), zh: e.zh }; }
   return null;
 }
+function collocOf(w) {
+  if (!w || !w.phr || !w.phr.length) return null; const re = headRe(w); if (!re) return null;
+  for (const p of shuffle(w.phr)) {
+    const mm = p.en.match(re); if (!mm) continue;
+    const before = p.en.slice(0, mm.index), after = p.en.slice(mm.index + mm[0].length);
+    if ((before + after).replace(/[^A-Za-z]/g, '').length < 2) continue;
+    return { before, ans: mm[0], after, zh: p.zh };
+  }
+  return null;
+}
+/* ---- sentence dictation: word-level alignment of what was typed against the sentence ---- */
+const tokRe = /[A-Za-z0-9]+(?:['’-][A-Za-z0-9]+)*/g;
+const normTok = t => t.toLowerCase().replace(/’/g, "'");
+function sentDiff(target, typed, w) {
+  const T = [...target.matchAll(tokRe)].map(m => ({ raw: m[0], t: normTok(m[0]), s: m.index, e: m.index + m[0].length }));
+  const U = [...typed.matchAll(tokRe)].map(m => normTok(m[0]));
+  const n = T.length, k = U.length, L = Array.from({ length: n + 1 }, () => new Array(k + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = k - 1; j >= 0; j--) L[i][j] = T[i].t === U[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const ops = []; let i = 0, j = 0;
+  while (i < n || j < k) {
+    if (i < n && j < k && T[i].t === U[j]) { ops.push({ kind: 'ok', ti: i }); i++; j++; }
+    else if (j < k && (i >= n || L[i][j + 1] >= L[i + 1][j])) { ops.push({ kind: 'extra', u: U[j] }); j++; }
+    else { ops.push({ kind: 'miss', ti: i }); i++; }
+  }
+  /* a missing word right next to an extra word is a misspelling: show them as one */
+  const out = [];
+  for (let x = 0; x < ops.length; x++) {
+    const a = ops[x], b = ops[x + 1];
+    if (b && ((a.kind === 'miss' && b.kind === 'extra') || (a.kind === 'extra' && b.kind === 'miss'))) { const mi = a.kind === 'miss' ? a : b, ex = a.kind === 'extra' ? a : b; out.push({ kind: 'wrong', ti: mi.ti, u: ex.u }); x++; }
+    else out.push(a);
+  }
+  const okSet = new Set(out.filter(o => o.kind === 'ok').map(o => o.ti));
+  let head = null; const re = headRe(w); const mm = re && target.match(re);
+  if (mm) { const s0 = mm.index, e0 = mm.index + mm[0].length; head = T.map((t, ix) => ix).filter(ix => T[ix].s >= s0 && T[ix].e <= e0); }
+  const headOk = head && head.length ? head.every(ix => okSet.has(ix)) : null;
+  return { T, out, correct: okSet.size, total: n, headOk, head: new Set(head || []) };
+}
 function openMode(kind, scope = 'wrong') {
   let list;
-  if (scope === 'book') list = kind === 'listen' ? S.words.map(w => w.w) : shuffle(S.words.map(w => w.w));
+  const srs = P().srs || {};
+  if (kind === 'review') list = dueList();
+  else if (scope === 'book') { const pool = S.words.filter(w => !(srs[w.w] && srs[w.w].easy)).map(w => w.w); list = kind === 'listen' ? pool : shuffle(pool); }
   else { list = wrongList().map(([w]) => w); if (S.settings.shuffle && kind !== 'listen') list = shuffle(list); }
   if (kind === 'cloze') list = list.filter(w => clozeOf(card(w)));
-  if (scope === 'book' && kind !== 'listen') list = list.slice(0, S.settings.sessionSize);
-  if (!list.length) { toast(kind === 'cloze' ? '这些词还没有能用来填空的例句' : '没有可练的词'); return; }
+  if (kind === 'colloc') list = list.filter(w => collocOf(card(w)));
+  if (kind === 'sdict') list = list.filter(w => { const c = card(w); return c && c.ex && c.ex.length; });
+  if (scope === 'book' && kind !== 'listen' && kind !== 'review') list = list.slice(0, S.settings.sessionSize);
+  if (kind === 'review') list = list.slice(0, Math.max(50, S.settings.sessionSize));
+  if (!list.length) { toast(kind === 'review' ? '今天没有要复习的词' : kind === 'cloze' ? '这些词还没有能用来填空的例句' : kind === 'colloc' ? '这些词没有可以出题的搭配' : '没有可练的词'); return; }
   if (QUIZ.has(kind) && S.words.length < 4) { toast('词书至少要有 4 个词才能出选择题'); return; }
-  S.mode = { kind, scope, list, total: list.length, i: 0, reveal: false, result: null, hint: 0, playing: false, tok: 0, right: 0, wrongs: [], done: false, from: S.view, picked: null };
+  S.mode = { kind, scope, list, total: list.length, i: 0, reveal: false, result: null, hint: 0, playing: false, tok: 0, right: 0, fuzzy: 0, wrongs: [], done: false, from: S.view, picked: null, sd: null, showZh: false };
   prepQ(); S.view = 'mode'; render(); modeAudio(250);
 }
 const curModeWord = () => card(S.mode.list[S.mode.i]);
 function modeAudio(delay) {
   const m = S.mode; if (!m || m.done) return; const w = curModeWord();
   if (m.kind === 'dict') setTimeout(() => say(w.w), delay);
-  else if ((m.kind === 'cards' || m.kind === 'quiz-en') && S.settings.autoSpeak) say(w.w);
+  else if (m.kind === 'sdict') setTimeout(() => say(m.sent.en), delay + 150);
+  else if ((m.kind === 'cards' || m.kind === 'quiz-en' || m.kind === 'review') && S.settings.autoSpeak) say(w.w);
 }
 function prepQ() {
-  const m = S.mode; m.picked = null; if (!QUIZ.has(m.kind)) return; const w = curModeWord();
+  const m = S.mode; m.picked = null; m.sd = null; m.showZh = false;
+  if (m.kind === 'sdict') { const ex = curModeWord().ex; m.sent = ex[Math.floor(Math.random() * ex.length)]; return; }
+  if (!QUIZ.has(m.kind)) return; const w = curModeWord();
   const pos0 = x => (x.pos || '').split(',')[0].trim();
   const seenM = new Set([shortM(w)]), seenW = new Set([w.w.toLowerCase()]); const picks = [];
   const cands = [...shuffle(S.words.filter(x => pos0(x) === pos0(w))), ...shuffle(S.words)];
@@ -837,7 +908,7 @@ function prepQ() {
     if (x.m && !seenW.has(x.w.toLowerCase()) && !seenM.has(shortM(x))) { picks.push(x); seenM.add(shortM(x)); seenW.add(x.w.toLowerCase()); }
   }
   m.opts = shuffle([w, ...picks]).map(x => x.w);
-  m.cz = m.kind === 'cloze' ? clozeOf(w) : null;
+  m.cz = m.kind === 'cloze' ? clozeOf(w) : m.kind === 'colloc' ? collocOf(w) : null;
 }
 function practiceMiss(w) {
   const p = P(); const e = W()[w];
@@ -885,6 +956,25 @@ function checkSpell() {
   scoreResult(m.result === 'ok');
   render(); if (m.result === 'ok') say(w.w);
 }
+function checkSentence() {
+  const m = S.mode; if (m.sd) { modeNext(); return; }
+  const inp = $('#sentIn'); if (!inp || !inp.value.trim()) return;
+  const w = curModeWord(); const d = sentDiff(m.sent.en, inp.value, w); d.typed = inp.value;
+  const acc = d.total ? d.correct / d.total : 0; m.sd = d;
+  const p = P(); p.seen = p.seen || {}; p.seen[w.w] = 1;
+  if (d.headOk === false) { m.wrongs.push(w.w); practiceMiss(w.w); }
+  else if (acc >= 0.8) m.right++;
+  saveProg(); bumpStat('practice'); if (d.headOk !== false && acc >= 0.8) bumpStat('correct');
+  render();
+}
+function gradeReview(g) {
+  const m = S.mode, w = curModeWord(); if (!m.reveal) return;
+  const p = P(); p.seen = p.seen || {}; p.seen[w.w] = 1;
+  srsGrade(w.w, g);
+  if (g === 'again') { m.wrongs.push(w.w); practiceMiss(w.w); } else if (g === 'hard') m.fuzzy++; else m.right++;
+  saveProg(); bumpStat('practice'); if (g === 'good' || g === 'easy') bumpStat('correct');
+  modeNext();
+}
 function masterCurrent() {
   const m = S.mode, w = m.list[m.i]; const p = P(); const we = W()[w];
   p.seen = p.seen || {}; p.seen[w] = 1; m.right++;
@@ -899,15 +989,16 @@ function viewModeDone() {
   const uniq = [...new Set(m.wrongs)].filter(w => card(w));
   const pct = scored ? Math.round(m.right / scored * 100) : 0;
   return `<div class="drill"><div class="drill-top"><button class="iconbtn" data-act="mode-exit" aria-label="返回">${I.back}</button><span class="grow" style="font:650 17px var(--f-word)">${MODE_NAMES[m.kind]}</span></div><div class="stage">
-    <div class="card" style="text-align:center"><div class="label">本组完成 · ${m.scope === 'book' ? '整本书随机' : '错词本'}</div>
-      ${scored ? `<div class="donebig num">${m.right}<span class="muted">/${scored}</span></div><p class="muted small">正确率 ${pct}%${uniq.length ? `，错的 ${uniq.length} 个词已记进错词本「记不住」` : ''}</p>` : '<p class="muted">这一组过完了。</p>'}</div>
+    <div class="card" style="text-align:center"><div class="label">本组完成 · ${m.kind === 'review' ? esc(S.book.name) : m.scope === 'book' ? '整本书随机' : '错词本'}</div>
+      ${m.kind === 'review' ? `<div class="donebig num">${m.right + m.fuzzy + m.wrongs.length}<span class="muted"> 词</span></div><p class="muted small">记得 ${m.right} · 模糊 ${m.fuzzy} · 忘了 ${m.wrongs.length}${dueList().length ? ` · 还有 ${dueList().length} 个到期` : ' · 今天的复习完成了'}</p>`
+        : scored ? `<div class="donebig num">${m.right}<span class="muted">/${scored}</span></div><p class="muted small">正确率 ${pct}%${uniq.length ? `，错的 ${uniq.length} 个词已记进错词本「记不住」` : ''}</p>` : '<p class="muted">这一组过完了。</p>'}</div>
     ${uniq.length ? `<div class="list" style="margin-top:14px">${uniq.map(w => { const it = card(w); return `<button class="item" data-word="${esc(w)}"><div class="grow"><div class="w">${esc(w)}</div><div class="m">${esc((it.pos ? it.pos + ' ' : '') + (it.m || ''))}</div></div></button>`; }).join('')}</div>` : ''}
-    </div><div class="answers"><button class="ans" data-act="mode-exit" style="border-color:var(--line);color:var(--ink-2)">返回</button><button class="ans solid" data-act="mode-again">再来一组</button></div></div>`;
+    </div><div class="answers"><button class="ans" data-act="mode-exit" style="border-color:var(--line);color:var(--ink-2)">返回</button>${m.kind === 'review' && !dueList().length ? '' : '<button class="ans solid" data-act="mode-again">再来一组</button>'}</div></div>`;
 }
 function viewMode() {
   const m = S.mode; if (m.done) return viewModeDone();
   const w = curModeWord();
-  const top = `<div class="drill-top"><button class="iconbtn" data-act="mode-exit" aria-label="返回">${I.back}</button><span class="grow" style="font:650 17px var(--f-word)">${MODE_NAMES[m.kind]} <span class="small muted" style="font-family:var(--f-body);font-weight:400">· ${m.scope === 'book' ? '整本书' : '错词本'}</span></span>${m.kind !== 'listen' && (m.right + m.wrongs.length) ? `<span class="chip num">✓ ${m.right}</span>` : ''}<span class="chip num">${m.i + 1}/${m.list.length}</span></div><div class="thinbar"><i style="width:${(m.i + 1) / m.list.length * 100}%"></i></div>`;
+  const top = `<div class="drill-top"><button class="iconbtn" data-act="mode-exit" aria-label="返回">${I.back}</button><span class="grow" style="font:650 17px var(--f-word)">${MODE_NAMES[m.kind]} <span class="small muted" style="font-family:var(--f-body);font-weight:400">· ${m.kind === 'review' ? '间隔复习' : m.scope === 'book' ? '整本书' : '错词本'}</span></span>${m.kind !== 'listen' && (m.right + m.wrongs.length) ? `<span class="chip num">✓ ${m.right}</span>` : ''}<span class="chip num">${m.i + 1}/${m.list.length}</span></div><div class="thinbar"><i style="width:${(m.i + 1) / m.list.length * 100}%"></i></div>`;
   const last = m.i + 1 >= m.list.length && m.kind !== 'listen';
   let stage = '', foot = '';
   if (m.kind === 'cards') {
@@ -915,6 +1006,36 @@ function viewMode() {
     foot = !m.reveal ? `<button class="ans solid wide" data-act="flip">看释义</button>`
       : m.scope === 'book' ? `<button class="ans no" data-act="c-no">不认识<small>记进错词本</small></button><button class="ans yes" data-act="c-yes">认识</button>`
       : `<button class="ans no" data-act="c-no">还不熟</button><button class="ans yes" data-act="m-master">${S.wrongTag === 'pron' ? '会读了' : '已掌握'}<small>${S.wrongTag === 'all' ? '移出错词本' : '去掉这个标签'}</small></button>`;
+  } else if (m.kind === 'review') {
+    const st = (P().srs || {})[w.w];
+    stage = `<div class="indexcard" data-act="flip" style="${m.reveal ? '' : 'margin:auto 0;cursor:pointer'}">${headHTML(w)}${m.reveal ? detailHTML(w) : '<p class="small muted" style="text-align:center;margin-top:28px">想一想意思，再点卡片看答案</p>'}</div>`;
+    const nx = g => fmtIv(srsPreview(st, g));
+    foot = !m.reveal ? `<button class="ans solid wide" data-act="flip">看答案</button>`
+      : `<button class="ans grade no" data-grade="again">忘了<small>${nx('again')}</small></button><button class="ans grade" data-grade="hard" style="border-color:var(--hi);color:var(--ink)">模糊<small>${nx('hard')}</small></button><button class="ans grade yes" data-grade="good">记得<small>${nx('good')}</small></button><button class="ans grade" data-grade="easy" style="border-color:var(--accent);color:var(--accent)">太简单<small>不再复习</small></button>`;
+  } else if (m.kind === 'sdict') {
+    const d = m.sd, c = m.sent;
+    let body = '';
+    if (d) {
+      const parts = [];
+      for (const o of d.out) {
+        if (o.kind === 'extra') { parts.push(`<s class="sx">${esc(o.u)}</s>`); continue; }
+        const t = d.T[o.ti], hd = d.head.has(o.ti) ? ' hd' : '';
+        if (o.kind === 'ok') parts.push(`<span class="sok${hd}">${esc(t.raw)}</span>`);
+        else if (o.kind === 'wrong') parts.push(`<span class="swr${hd}"><s>${esc(o.u)}</s> ${esc(t.raw)}</span>`);
+        else parts.push(`<span class="smi${hd}">${esc(t.raw)}</span>`);
+      }
+      const acc = d.total ? Math.round(d.correct / d.total * 100) : 0;
+      body = `<div class="sdres">${parts.join(' ')}</div><div class="clozezh">${esc(c.zh)}</div>
+        <div class="result ${d.headOk === false ? 'bad' : acc >= 80 ? 'good' : 'bad'}" style="margin-top:12px">${d.correct}/${d.total} 词 · ${acc}%${d.headOk === false ? `<span class="small" style="display:block;font-weight:500">目标词 ${esc(w.w)} 没写对，已记进错词本「记不住」</span>` : d.headOk ? '<span class="small" style="display:block;font-weight:500">目标词写对了</span>' : ''}</div>
+        <div class="legend" style="justify-content:center;flex-wrap:wrap"><span><i style="background:var(--good)"></i>写对</span><span><i style="background:var(--bad)"></i>写错</span><span><i style="background:var(--ink-3)"></i>漏掉</span><span><i style="background:var(--accent)"></i>目标词</span></div>`;
+    }
+    stage = `<div class="indexcard plain">
+      <div class="player" style="margin-top:0"><button class="iconbtn" data-act="sd-slow" aria-label="慢速播放" style="width:auto;padding:0 14px;border-radius:99px;font-size:13px">0.75×</button><button class="iconbtn play" data-act="sd-play" aria-label="播放句子">${I.vol}</button><button class="iconbtn" data-act="sd-zh" aria-label="中文提示" style="width:auto;padding:0 14px;border-radius:99px;font-size:13px">${m.showZh ? '隐藏中文' : '中文提示'}</button></div>
+      ${m.showZh && !d ? `<div class="clozezh" style="text-align:center">${esc(c.zh)}</div>` : ''}
+      <p class="small muted" style="text-align:center;margin:10px 0 0">${d ? '对照一下，看哪里没听出来' : '听整句，把句子打出来（大小写和标点不计）'}</p>
+      ${d ? body : `<textarea id="sentIn" class="sentbox" rows="3" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="输入听到的句子"></textarea>`}
+    </div>${d ? `<div class="card" style="margin-top:14px">${headHTML(w)}${detailHTML(w, { examples: false })}</div>` : ''}`;
+    foot = d ? `<button class="ans solid wide" data-act="m-next">${last ? '看结果' : '下一句'}</button>` : `<button class="ans solid wide" data-act="sd-check">检查</button>`;
   } else if (m.kind === 'listen') {
     stage = `<div class="indexcard">${headHTML(w)}${detailHTML(w)}</div>
       <div class="player"><button class="iconbtn" data-act="l-prev" aria-label="上一个">${I.prev}</button><button class="iconbtn play" data-act="l-toggle" aria-label="${m.playing ? '暂停' : '播放'}">${m.playing ? I.pause : I.play}</button><button class="iconbtn" data-act="l-next" aria-label="下一个">${I.next}</button></div>
@@ -924,7 +1045,7 @@ function viewMode() {
     let prompt;
     if (m.kind === 'quiz-en') prompt = headHTML(w);
     else if (m.kind === 'quiz-zh') prompt = `<p class="label" style="text-align:center;margin:0 0 10px">选出对应的英文</p><div class="meaning" style="text-align:center;margin-top:0">${w.pos ? `<span class="pos">${esc(w.pos)}</span>` : ''}${esc(w.m)}</div>`;
-    else { const c = m.cz; prompt = `<p class="label" style="text-align:center;margin:0 0 10px">选词填空</p><div class="clozeq">${esc(c.before)}${pk === null ? `<span class="blank">${' '.repeat(Math.max(5, Math.min(12, c.ans.length)))}</span>` : `<mark>${esc(c.ans)}</mark>`}${esc(c.after)}</div><div class="clozezh">${esc(c.zh)}</div>`; }
+    else { const c = m.cz; prompt = `<p class="label" style="text-align:center;margin:0 0 10px">${m.kind === 'colloc' ? '补全这个搭配' : '选词填空'}</p><div class="clozeq${m.kind === 'colloc' ? ' colq' : ''}">${esc(c.before)}${pk === null ? `<span class="blank">${' '.repeat(Math.max(5, Math.min(12, c.ans.length)))}</span>` : `<mark>${esc(c.ans)}</mark>`}${esc(c.after)}</div><div class="clozezh">${esc(c.zh)}</div>`; }
     const opts = m.opts.map((x, i) => {
       const ow = card(x); const cls = pk === null ? '' : i === ans ? ' right' : i === pk ? ' wrongpick' : ' dim';
       const label = m.kind === 'quiz-en' ? esc(shortM(ow)) : `<span class="ow">${esc(ow.w)}</span>`;
@@ -932,6 +1053,7 @@ function viewMode() {
     }).join('');
     stage = `<div class="indexcard">${prompt}</div><div class="opts">${opts}</div>${pk !== null ? `<div class="card" style="margin-top:14px">${m.kind !== 'quiz-en' ? headHTML(w) : ''}${detailHTML(w)}</div>` : ''}`;
     foot = pk !== null ? `<button class="ans solid wide" data-act="m-next">${last ? '看结果' : '下一题'}</button>` : '';
+    if (m.kind === 'colloc' && pk !== null) stage = stage.replace('<div class="card" style="margin-top:14px">', `<div class="card" style="margin-top:14px"><p class="label" style="margin:0 0 8px">${esc(w.w)} 的常用搭配</p><div class="phr" style="margin-bottom:6px">${(w.phr || []).map(p => `<span><b>${esc(p.en)}</b>${esc(p.zh || '')}</span>`).join('')}</div>`);
   } else {
     const dict = m.kind === 'dict';
     const hintStr = w.w.split('').map((c, i) => i < m.hint || c === ' ' || c === '-' ? c : '_').join('');
@@ -944,7 +1066,44 @@ function viewMode() {
     </div>`;
     foot = m.result ? `<button class="ans solid wide" data-act="m-next">${last ? '看结果' : '下一个'}</button>` : `<button class="ans no" data-act="hint" style="border-color:var(--line);color:var(--ink-2)">提示一个字母</button><button class="ans yes" data-act="check">检查</button>`;
   }
-  return `<div class="drill">${top}<div class="stage">${stage}</div>${foot ? `<div class="answers">${foot}</div>` : ''}</div>`;
+  return `<div class="drill">${top}<div class="stage">${stage}</div>${foot ? `<div class="answers${m.kind === 'review' && m.reveal ? ' four' : ''}">${foot}</div>` : ''}</div>`;
+}
+
+
+/* ---------- Spaced repetition (per book): simplified SM-2 ---------- */
+const SRS_NEW = { iv: 0, ease: 2.5, reps: 0 };
+function srsPreview(st, g) {
+  const c = st || SRS_NEW; if (g === 'easy') return null;
+  if (g === 'again') return 1;
+  if (g === 'hard') return Math.max(1, Math.round((c.iv || 1) * 1.2));
+  return c.reps ? Math.max((c.iv || 1) + 1, Math.round((c.iv || 1) * (c.ease || 2.5))) : 3;
+}
+const fmtIv = d => d == null ? '不再复习' : d === 1 ? '明天' : d < 30 ? d + ' 天后' : Math.round(d / 30) + ' 个月后';
+function srsGrade(w, g) {
+  const p = P(); p.srs = p.srs || {}; const c = { ...SRS_NEW, ...(p.srs[w] || {}) };
+  if (g === 'easy') { p.srs[w] = { ...c, easy: true, due: null }; return; }
+  const iv = srsPreview(c, g);
+  if (g === 'again') { c.ease = Math.max(1.3, c.ease - 0.2); c.reps = 0; }
+  else if (g === 'hard') c.ease = Math.max(1.3, c.ease - 0.15);
+  else c.reps++;
+  p.srs[w] = { iv, ease: Math.round(c.ease * 100) / 100, reps: c.reps, due: shiftDay(today(), iv) };
+}
+/* drill results feed the schedule: 不认识 → tomorrow, first 认识 → in 3 days */
+function srsFromDrill(w, known) {
+  const p = P(); p.srs = p.srs || {}; const c = p.srs[w];
+  if (c && c.easy) return;
+  if (!known) p.srs[w] = { iv: 1, ease: Math.max(1.3, ((c && c.ease) || 2.5) - 0.2), reps: 0, due: shiftDay(today(), 1) };
+  else if (!c) p.srs[w] = { iv: 3, ease: 2.5, reps: 1, due: shiftDay(today(), 3) };
+}
+function dueList() {
+  const srs = P().srs || {}, t = today();
+  return Object.entries(srs).filter(([w, c]) => !c.easy && c.due && c.due <= t && S.wmap.has(w)).sort((a, b) => a[1].due.localeCompare(b[1].due)).map(([w]) => w);
+}
+function srsSummary() {
+  const srs = P().srs || {}; const t = today(), tm = shiftDay(t, 1);
+  let due = 0, tomorrow = 0, easy = 0, tracked = 0;
+  for (const [w, c] of Object.entries(srs)) { if (!S.wmap.has(w)) continue; tracked++; if (c.easy) { easy++; continue; } if (c.due && c.due <= t) due++; else if (c.due === tm) tomorrow++; }
+  return { due, tomorrow, easy, tracked };
 }
 
 /* ---------- Study statistics (all books): per-day counts + per-book mastery snapshot ---------- */
@@ -1185,12 +1344,13 @@ function go(v) {
 function nextCardSilent() { const p = P(); if (p.pos >= p.order.length && !p.finished) { p.finished = true; p.history.push({ round: p.round, scope: p.scope, total: p.order.length, wrong: p.roundWrong.length, date: today() }); saveProg(true); } }
 
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-say],[data-go],[data-act],[data-word],[data-day],[data-mode],[data-use],[data-del],[data-export],[data-accent],[data-tag],[data-wtag],[data-opt],[data-bar],[data-size],[data-adv],[data-voice]'); if (!t) return;
+  const t = e.target.closest('[data-say],[data-go],[data-act],[data-word],[data-day],[data-mode],[data-use],[data-del],[data-export],[data-accent],[data-tag],[data-wtag],[data-opt],[data-bar],[data-size],[data-adv],[data-grade],[data-voice]'); if (!t) return;
   const d = t.dataset;
   if (d.say !== undefined) { e.stopPropagation(); say(d.say, d.lang); if (!canSpeak()) toast('这个浏览器没有英文朗读，请到「设置」把发音来源改成「在线」'); return; }
   if (d.go) return go(d.go);
   if (d.tag) { toggleTag(d.w, d.tag); if ($('#layer').innerHTML) openSheet(d.w, true); render(); return; }
   if (d.opt !== undefined) return pickOpt(+d.opt);
+  if (d.grade) return gradeReview(d.grade);
   if (d.bar !== undefined) { S.statSel = +d.bar; return render(); }
   if (d.adv !== undefined) { S.settings.advanceDelay = +d.adv; saveSettings(); return render(); }
   if (d.size) { S.settings.sessionSize = +d.size; saveSettings(); return render(); }
@@ -1229,6 +1389,11 @@ document.addEventListener('click', async e => {
     case 'mode-exit': { stopListen(); const back = S.mode && S.mode.from || 'wrong'; S.mode = null; S.view = back; render(); break; }
     case 'mode-again': { const { kind, scope, from } = S.mode; S.view = from; openMode(kind, scope); break; }
     case 'c-no': scoreResult(false); modeNext(); break;
+    case 'open-review': openMode('review', 'book'); break;
+    case 'sd-play': speak(S.mode.sent.en, 'en', { cancel: true }); break;
+    case 'sd-slow': speak(S.mode.sent.en, 'en', { cancel: true, slow: true }); break;
+    case 'sd-zh': { const v = $('#sentIn') ? $('#sentIn').value : ''; S.mode.showZh = !S.mode.showZh; render(); if ($('#sentIn')) $('#sentIn').value = v; break; }
+    case 'sd-check': checkSentence(); break;
     case 'c-yes': scoreResult(true); modeNext(); break;
     case 'flip': if (!S.mode.reveal) { S.mode.reveal = true; render(); } break;
     case 'm-next': modeNext(); break;
@@ -1241,6 +1406,7 @@ document.addEventListener('click', async e => {
 });
 document.addEventListener('keydown', e => {
   if (e.target.id === 'spellIn' && e.key === 'Enter') { e.preventDefault(); checkSpell(); return; }
+  if (e.target.id === 'sentIn' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); checkSentence(); return; }
   if (S.view === 'drill' && !/INPUT|TEXTAREA/.test(e.target.tagName)) {
     if (!S.reveal && (e.key === 'ArrowLeft' || e.key === '1')) answer(true);
     else if (!S.reveal && (e.key === 'ArrowRight' || e.key === '2')) answer(false);
