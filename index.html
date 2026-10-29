@@ -367,7 +367,7 @@ const Store = {
 };
 
 /* ---------- App state ---------- */
-const DEFAULTS = { current: DEMO_ID, accent: 'en-GB', rate: 0.9, autoSpeak: true, autoAdvance: true, shuffle: true, listenZh: true, listenEx: true, sessionSize: 20 };
+const DEFAULTS = { current: DEMO_ID, accent: 'en-GB', rate: 0.9, autoSpeak: true, autoAdvance: true, shuffle: true, listenZh: true, listenEx: true, sessionSize: 20, voice: 'online' };
 const S = {
   settings: { ...DEFAULTS, ...lsGet('wb:settings', {}) },
   books: [], book: null, words: [], wmap: new Map(), prog: null,
@@ -426,7 +426,7 @@ function pickVoice(lang) {
   const l = lang.toLowerCase(); const exact = voices.filter(v => v.lang.replace('_', '-').toLowerCase() === l);
   return exact.find(v => /google|natural|premium|enhanced/i.test(v.name)) || exact[0] || voices.find(v => v.lang.toLowerCase().startsWith(l.slice(0, 2)));
 }
-function speak(text, lang, { cancel = false } = {}) {
+function sysSpeak(text, lang, { cancel = false } = {}) {
   if (!TTS || !text) return Promise.resolve();
   return new Promise(res => {
     try {
@@ -442,6 +442,34 @@ function speak(text, lang, { cancel = false } = {}) {
     } catch { res(); }
   });
 }
+/* Online audio from Youdao's dictionary voice service: plays in any browser, no speech engine needed */
+const AUD = new Audio(); AUD.preload = 'auto';
+const onlineUrl = (text, lang) => lang === 'zh'
+  ? 'https://dict.youdao.com/dictvoice?le=zh&audio=' + encodeURIComponent(text)
+  : 'https://dict.youdao.com/dictvoice?type=' + (S.settings.accent === 'en-GB' ? 1 : 2) + '&audio=' + encodeURIComponent(text);
+function playOnline(text, lang) {
+  return new Promise(res => {
+    let done = false; const fin = ok => { if (!done) { done = true; res(ok); } };
+    try {
+      AUD.pause(); AUD.src = onlineUrl(text, lang);
+      AUD.playbackRate = lang === 'zh' ? 1 : Math.min(1.2, Math.max(0.6, S.settings.rate + 0.1));
+      AUD.onended = () => fin(true); AUD.onerror = () => fin(false);
+      const p = AUD.play(); if (p && p.catch) p.catch(() => fin(false));
+      setTimeout(() => fin(!AUD.error), 4000 + text.length * 160);
+    } catch { fin(false); }
+  });
+}
+const hasSysVoice = lang => TTS && (!voices.length || voices.some(v => v.lang.toLowerCase().startsWith(lang === 'zh' ? 'zh' : 'en')));
+const canSpeak = () => S.settings.voice === 'online' || hasSysVoice('en');
+async function speak(text, lang, opts = {}) {
+  if (!text) return;
+  if (S.settings.voice === 'online' && navigator.onLine !== false) {
+    if (opts.cancel) { try { speechSynthesis.cancel(); } catch {} }
+    if (await playOnline(text, lang)) return;
+  }
+  if (hasSysVoice(lang)) return sysSpeak(text, lang, opts);
+}
+function stopAudio() { try { AUD.pause(); } catch {} try { speechSynthesis.cancel(); } catch {} }
 const say = (t, lang) => speak(t, lang, { cancel: true });
 
 /* ---------- Cross-book wrong-word book: one entry per word, holding a copy of its card and the books it came from ---------- */
@@ -718,8 +746,8 @@ function viewImport() {
     <div class="field"><label class="label" for="impName">词书名称</label><input id="impName" value="${esc(d.name)}" placeholder="例如：雅思真经 List 1-10"></div>
     <div class="field"><label class="label" for="impFile">从文件导入（.txt / .csv / .json）</label><input id="impFile" type="file" accept=".txt,.csv,.tsv,.json,text/plain,application/json"></div>
     <div class="field"><label class="label" for="impText">或直接粘贴</label><textarea id="impText" placeholder="每行一个词，例如：&#10;mitigate  v. 减轻；缓和&#10;substantial, adj. 大量的&#10;give up 放弃&#10;ubiquitous">${esc(d.text)}</textarea></div>
-    ${parsed ? `<div class="status">识别到 <b class="num">${parsed.length}</b> 个词${parsed.length ? `，其中 ${missingCount(parsed)} 个缺释义或例句${sample ? '（导入后可用 AI 补全）' : ''}。前几个：${esc(parsed.slice(0, 5).map(w => w.w).join(' · '))}` : '。请检查格式。'}</div>` : ''}
-    <button class="btn primary big" data-act="do-import" ${parsed && parsed.length ? '' : 'disabled'}>导入并开始使用</button>
+    ${parsed ? `<div class="status">识别到 <b class="num">${parsed.length}</b> 个词${parsed.length ? `，其中 ${missingCount(parsed)} 个缺释义或例句${sample ? '（导入后可用 AI 补全）' : ''}。前几个：${esc(parsed.slice(0, 5).map(w => w.w).join(' · '))}` : S.importDraft.isPack ? `。这是词书包（含 ${S.importDraft.isPack} 本词书），点下面的按钮整包导入。` : '。请检查格式。'}</div>` : ''}
+    ${S.importDraft.isPack ? '<button class="btn primary big" data-act="import-pack">导入词书包</button>' : `<button class="btn primary big" data-act="do-import" ${parsed && parsed.length ? '' : 'disabled'}>导入并开始使用</button>`}
     <details class="card"><summary class="label" style="cursor:pointer">支持的格式</summary>
       <p class="small">1. 纯文本：每行一个词，后面可跟音标、词性和释义，用空格、逗号或 Tab 隔开。只写单词也可以，之后用 AI 补全。</p>
       <pre class="fmt">abandon /əˈbændən/ v. 放弃；抛弃
@@ -739,7 +767,8 @@ function viewSettings() {
   const sw = (k, t, sub) => `<label class="setrow" for="set-${k}"><span class="grow">${t}${sub ? `<small>${sub}</small>` : ''}</span><input id="set-${k}" class="switch" type="checkbox" data-set="${k}" ${s[k] ? 'checked' : ''}></label>`;
   return topbar('设置') + `<main class="view">
     <div class="list">
-      <div class="setrow"><span class="grow">发音<small>${TTS ? '使用手机系统的语音朗读' : '这个浏览器不支持朗读，请用 Chrome 打开'}</small></span><span class="seg2"><button data-accent="en-GB" aria-pressed="${s.accent === 'en-GB'}">英音</button><button data-accent="en-US" aria-pressed="${s.accent === 'en-US'}">美音</button></span></div>
+      <div class="setrow"><span class="grow">发音来源<small>${s.voice === 'online' ? '在线真人发音，任何浏览器都能用，需要联网；没网时自动改用系统朗读' : hasSysVoice('en') ? '使用手机系统的语音朗读，不用联网' : '这台手机的浏览器没有英文朗读，请改用在线发音'}</small></span><span class="seg2"><button data-voice="online" aria-pressed="${s.voice === 'online'}">在线</button><button data-voice="system" aria-pressed="${s.voice === 'system'}">系统</button></span></div>
+      <div class="setrow"><span class="grow">口音</span><span class="seg2"><button data-accent="en-GB" aria-pressed="${s.accent === 'en-GB'}">英音</button><button data-accent="en-US" aria-pressed="${s.accent === 'en-US'}">美音</button></span></div>
       <div class="setrow"><label class="grow" for="set-rate">语速<small class="num">${s.rate.toFixed(2)}×</small></label><input id="set-rate" type="range" min="0.6" max="1.2" step="0.05" value="${s.rate}"></div>
       <div class="setrow"><span class="grow">试听</span><button class="btn" data-say="The quick brown fox jumps over the lazy dog." data-lang="en">${I.vol}播放</button></div>
     </div>
@@ -829,7 +858,7 @@ function modeNext(step = 1) {
   m.i = (m.i + step + m.list.length) % m.list.length; m.reveal = false; m.result = null; m.hint = 0;
   prepQ(); render(); modeAudio(150);
 }
-function stopListen() { if (S.mode) { S.mode.playing = false; S.mode.tok++; } try { speechSynthesis.cancel(); } catch {} releaseWake(); }
+function stopListen() { if (S.mode) { S.mode.playing = false; S.mode.tok++; } stopAudio(); releaseWake(); }
 let wake = null;
 async function holdWake() { try { wake = await navigator.wakeLock.request('screen'); } catch { wake = null; } }
 function releaseWake() { try { wake && wake.release(); } catch {} wake = null; }
@@ -886,7 +915,7 @@ function viewMode() {
   } else if (m.kind === 'listen') {
     stage = `<div class="indexcard">${headHTML(w)}${detailHTML(w)}</div>
       <div class="player"><button class="iconbtn" data-act="l-prev" aria-label="上一个">${I.prev}</button><button class="iconbtn play" data-act="l-toggle" aria-label="${m.playing ? '暂停' : '播放'}">${m.playing ? I.pause : I.play}</button><button class="iconbtn" data-act="l-next" aria-label="下一个">${I.next}</button></div>
-      ${TTS ? '' : '<p class="status err" style="margin-top:14px">这个浏览器不支持朗读，请用安卓 Chrome 打开。</p>'}`;
+      ${canSpeak() ? '' : '<p class="status err" style="margin-top:14px">这个浏览器没有英文朗读，请到「设置」把发音来源改成「在线」。</p>'}`;
   } else if (QUIZ.has(m.kind)) {
     const pk = m.picked, ans = m.opts.indexOf(w.w);
     let prompt;
@@ -1068,8 +1097,9 @@ function parseLine(line) {
 }
 function parseBook(text) {
   text = text.replace(/^﻿/, '').trim(); let out = [];
+  S.importDraft.isPack = 0;
   if (/^[\[{]/.test(text)) {
-    try { let j = JSON.parse(text); if (!Array.isArray(j)) { if (!S.importDraft.name && j.name) S.importDraft.name = String(j.name); j = j.words || j.list || []; }
+    try { let j = JSON.parse(text); if (j && !Array.isArray(j) && Array.isArray(j.books)) { S.importDraft.isPack = j.books.length; return []; } if (!Array.isArray(j)) { if (!S.importDraft.name && j.name) S.importDraft.name = String(j.name); j = j.words || j.list || []; }
       out = j.map(x => typeof x === 'string' ? normWord({ w: x }) : normWord(x)); } catch { return []; }
   } else {
     const lines = text.split(/\r?\n/);
@@ -1152,9 +1182,9 @@ function go(v) {
 function nextCardSilent() { const p = P(); if (p.pos >= p.order.length && !p.finished) { p.finished = true; p.history.push({ round: p.round, scope: p.scope, total: p.order.length, wrong: p.roundWrong.length, date: today() }); saveProg(true); } }
 
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-say],[data-go],[data-act],[data-word],[data-day],[data-mode],[data-use],[data-del],[data-export],[data-accent],[data-tag],[data-wtag],[data-opt],[data-bar],[data-size]'); if (!t) return;
+  const t = e.target.closest('[data-say],[data-go],[data-act],[data-word],[data-day],[data-mode],[data-use],[data-del],[data-export],[data-accent],[data-tag],[data-wtag],[data-opt],[data-bar],[data-size],[data-voice]'); if (!t) return;
   const d = t.dataset;
-  if (d.say !== undefined) { e.stopPropagation(); say(d.say, d.lang); if (!TTS) toast('这个浏览器不支持朗读，请用 Chrome 打开'); return; }
+  if (d.say !== undefined) { e.stopPropagation(); say(d.say, d.lang); if (!canSpeak()) toast('这个浏览器没有英文朗读，请到「设置」把发音来源改成「在线」'); return; }
   if (d.go) return go(d.go);
   if (d.tag) { toggleTag(d.w, d.tag); if ($('#layer').innerHTML) openSheet(d.w, true); render(); return; }
   if (d.opt !== undefined) return pickOpt(+d.opt);
@@ -1164,6 +1194,7 @@ document.addEventListener('click', async e => {
   if (d.word) return openSheet(d.word);
   if (d.day) { S.wrongDay = d.day; return render(); }
   if (d.mode) return openMode(d.mode, d.scope);
+  if (d.voice) { S.settings.voice = d.voice; saveSettings(); render(); return say('pronunciation'); }
   if (d.accent) { S.settings.accent = d.accent; saveSettings(); render(); return say('Hello, how are you?'); }
   if (d.use) { await loadBook(d.use); S.ai.msg = ''; render(); return toast('已切换词书'); }
   if (d.del) { const b = S.books.find(x => x.id === d.del); return confirmBox('删除这本词书？', `「${b.name}」和它的刷词进度、错词本会一起删除，无法恢复。`, '删除', async () => {
@@ -1183,6 +1214,7 @@ document.addEventListener('click', async e => {
     case 'reset': confirmBox('从第 1 刷重来？', '本书的刷词进度会清零，错词本和统计保留。', '重来', () => { const hist = P().history; resetBook(); S.prog.history = hist; saveProg(true); }); break;
     case 'do-import': doImport(); break;
     case 'backup': doBackup(); break;
+    case 'import-pack': doRestore(new Blob([S.importDraft.text])); break;
     case 'install': if (installEvt) { installEvt.prompt(); installEvt.userChoice.finally(() => { installEvt = null; render(); }); } break;
     case 'ai-fill': aiFill(); break;
     case 'ai-stop': S.ai.ctl && S.ai.ctl.abort(); break;
@@ -1224,6 +1256,15 @@ document.addEventListener('change', e => {
   if (t.id === 'wrongSrc') { S.wrongSrc = t.value; S.wrongDay = 'all'; render(); return; }
   if (t.dataset.set) { S.settings[t.dataset.set] = t.checked; saveSettings(); }
   if (t.id === 'set-rate') say('consensus');
+  if (t.id === 'impFile' && t.files[0] && /\.json$/i.test(t.files[0].name)) {
+    const f = t.files[0]; t.value = '';
+    f.text().then(tx => {
+      let j = null; try { j = JSON.parse(tx.replace(/^\uFEFF/, '')); } catch {}
+      if (j && !Array.isArray(j) && Array.isArray(j.books)) { doRestore(f); return; }
+      S.importDraft.text = tx; if (!S.importDraft.name) S.importDraft.name = (j && !Array.isArray(j) && j.name) || f.name.replace(/\.[^.]+$/, ''); render();
+    }).catch(() => toast('读不了这个文件，请换成 .txt / .csv / .json'));
+    return;
+  }
   if (t.id === 'impFile' && t.files[0]) {
     const f = t.files[0]; const r = new FileReader();
     r.onload = () => { S.importDraft.text = String(r.result); if (!S.importDraft.name) S.importDraft.name = f.name.replace(/\.[^.]+$/, ''); render(); };
@@ -1249,7 +1290,7 @@ async function doBackup() {
 }
 async function doRestore(file) {
   let data; try { data = JSON.parse(await file.text()); } catch { toast('这个文件不是有效的备份'); return; }
-  if (!data || data.type !== 'wordcards-backup') { toast('这个文件不是词卡速刷的备份或词书包'); return; }
+  if (!data || (data.type !== 'wordcards-backup' && !Array.isArray(data.books))) { toast('这个文件不是词卡速刷的备份或词书包'); return; }
   const nb = (data.books || []).length, np = Object.keys(data.progress || {}).length, nw = Object.keys((data.wrong && data.wrong.items) || {}).length;
   confirmBox('导入这个文件？', `包含 ${nb} 本词书${np ? `、${np} 本书的进度` : ''}${nw ? `、${nw} 个错词` : ''}。同名词书和它的进度会被覆盖，错词本和统计会合并。`, '导入', async () => {
     toast('正在导入…');
