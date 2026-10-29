@@ -156,6 +156,9 @@ mark { background: var(--hi); color: var(--hi-ink); border-radius: 3px; padding:
 .chips button { flex: none; border: 1px solid var(--line); background: var(--card); border-radius: 99px; padding: 6px 12px; font-size: 13px; white-space: nowrap; }
 .chips button[aria-pressed="true"] { background: var(--ink); color: var(--card); border-color: var(--ink); }
 .answers.three { grid-template-columns: repeat(3, 1fr); }
+.ans.timer { position: relative; overflow: hidden; }
+.ans.timer::after { content: ""; position: absolute; left: 0; bottom: 0; height: 4px; width: 0; background: currentColor; opacity: .45; animation: adv-tick var(--t) linear forwards; }
+@keyframes adv-tick { to { width: 100%; } }
 .tagrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
 .tagbtn { border: 1px solid var(--line); background: var(--card); border-radius: 99px; padding: 5px 12px; font-size: 13px; color: var(--ink-2); }
 .tagbtn.mean[aria-pressed="true"] { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); }
@@ -367,7 +370,7 @@ const Store = {
 };
 
 /* ---------- App state ---------- */
-const DEFAULTS = { current: DEMO_ID, accent: 'en-GB', rate: 0.9, autoSpeak: true, autoAdvance: true, shuffle: true, listenZh: true, listenEx: true, sessionSize: 20, voice: 'online' };
+const DEFAULTS = { current: DEMO_ID, accent: 'en-GB', rate: 0.9, autoSpeak: true, advanceDelay: 0, shuffle: true, listenZh: true, listenEx: true, sessionSize: 20, voice: 'online' };
 const S = {
   settings: { ...DEFAULTS, ...lsGet('wb:settings', {}) },
   books: [], book: null, words: [], wmap: new Map(), prog: null,
@@ -554,7 +557,7 @@ function answer(known) {
   p.seen = p.seen || {}; p.seen[w.w] = 1; S.last.stat = known ? 'known' : 'unknown';
   p.pos++; S.reveal = { w: w.w, known };
   saveProg(); bumpStat('seen'); bumpStat(S.last.stat); render();
-  if (known && S.settings.autoAdvance) { const tok = S.reveal; setTimeout(() => { if (S.reveal === tok && S.view === 'drill') nextCard(); }, 1800); }
+  if (known && S.settings.advanceDelay) { const tok = S.reveal; setTimeout(() => { if (S.reveal === tok && S.view === 'drill') nextCard(); }, S.settings.advanceDelay * 1000); }
 }
 function forgot() {
   if (!S.reveal || !S.reveal.known) return;
@@ -663,10 +666,10 @@ function viewDrill() {
     const pr = S.reveal.pron; const ent = W()[w.w];
     const verdict = !k ? '已加入错词本 · 记不住' : pr ? '已加入错词本 · 读错了' : '✓ 认识';
     const btns = k && !pr
-      ? `<button class="ans no" data-act="forgot">记错了<small>意思不对</small></button><button class="ans no" data-act="misread" style="border-color:var(--accent);color:var(--accent)">读错了<small>意思对</small></button><button class="ans yes" data-act="next">下一个<small>${S.settings.autoAdvance ? '自动跳转' : '继续'}</small></button>`
+      ? `<button class="ans no" data-act="forgot">记错了<small>意思不对</small></button><button class="ans no" data-act="misread" style="border-color:var(--accent);color:var(--accent)">读错了<small>意思对</small></button><button class="ans yes${S.settings.advanceDelay ? ' timer' : ''}" data-act="next" style="--t:${S.settings.advanceDelay}s">下一个<small>${S.settings.advanceDelay ? S.settings.advanceDelay + ' 秒后自动' : '或点卡片'}</small></button>`
       : k && pr ? `<button class="ans no" data-act="forgot">记错了<small>意思也不对</small></button><button class="ans solid" data-act="next">下一个</button>`
       : `<button class="ans solid wide" data-act="next">下一个</button>`;
-    return `<div class="drill">${top}<div class="stage"><div class="indexcard">${headHTML(w)}${detailHTML(w, { examples: !k || pr })}
+    return `<div class="drill">${top}<div class="stage"><div class="indexcard" data-act="next" style="cursor:pointer">${headHTML(w)}${detailHTML(w, { examples: !k || pr })}
       <div class="verdict ${k && !pr ? 'good' : 'bad'}">${verdict}</div>${ent && (!k || pr) ? tagRow(w.w) : ''}</div></div>
       <div class="answers${k && !pr ? ' three' : ''}">${btns}</div></div>`;
   }
@@ -775,7 +778,7 @@ function viewSettings() {
     <div class="list">
       <div class="setrow"><span class="grow">整本书练习每组词数</span><span class="seg2">${[10, 20, 50].map(n => `<button data-size="${n}" aria-pressed="${s.sessionSize === n}">${n}</button>`).join('')}</span></div>
       ${sw('autoSpeak', '出词时自动发音')}
-      ${sw('autoAdvance', '点「认识」后自动跳到下一个', '会短暂显示释义，可点「记错了」更正')}
+      <div class="setrow"><span class="grow">点「认识」后的答案页<small>${s.advanceDelay ? `显示 ${s.advanceDelay} 秒后自动跳到下一个` : '停住不动，点「下一个」或点卡片再翻页'}</small></span><span class="seg2">${[[0, '点击'], [3, '3 秒'], [5, '5 秒']].map(([v, l]) => `<button data-adv="${v}" aria-pressed="${(s.advanceDelay || 0) === v}">${l}</button>`).join('')}</span></div>
       ${sw('shuffle', '每一刷打乱顺序')}
       ${sw('listenZh', '随身听：朗读中文释义')}
       ${sw('listenEx', '随身听：朗读第一条例句')}
@@ -850,7 +853,7 @@ function pickOpt(i) {
   const m = S.mode; if (m.picked !== null || m.done) return; m.picked = i;
   const ok = m.opts[i] === curModeWord().w; scoreResult(ok); render();
   if (m.kind !== 'quiz-en') say(curModeWord().w);
-  if (ok && S.settings.autoAdvance) { const ii = m.i; setTimeout(() => { if (S.mode === m && m.i === ii && !m.done && S.view === 'mode') modeNext(); }, 1100); }
+  if (ok && S.settings.advanceDelay) { const ii = m.i; setTimeout(() => { if (S.mode === m && m.i === ii && !m.done && S.view === 'mode') modeNext(); }, S.settings.advanceDelay * 1000); }
 }
 function modeNext(step = 1) {
   const m = S.mode;
@@ -1182,13 +1185,14 @@ function go(v) {
 function nextCardSilent() { const p = P(); if (p.pos >= p.order.length && !p.finished) { p.finished = true; p.history.push({ round: p.round, scope: p.scope, total: p.order.length, wrong: p.roundWrong.length, date: today() }); saveProg(true); } }
 
 document.addEventListener('click', async e => {
-  const t = e.target.closest('[data-say],[data-go],[data-act],[data-word],[data-day],[data-mode],[data-use],[data-del],[data-export],[data-accent],[data-tag],[data-wtag],[data-opt],[data-bar],[data-size],[data-voice]'); if (!t) return;
+  const t = e.target.closest('[data-say],[data-go],[data-act],[data-word],[data-day],[data-mode],[data-use],[data-del],[data-export],[data-accent],[data-tag],[data-wtag],[data-opt],[data-bar],[data-size],[data-adv],[data-voice]'); if (!t) return;
   const d = t.dataset;
   if (d.say !== undefined) { e.stopPropagation(); say(d.say, d.lang); if (!canSpeak()) toast('这个浏览器没有英文朗读，请到「设置」把发音来源改成「在线」'); return; }
   if (d.go) return go(d.go);
   if (d.tag) { toggleTag(d.w, d.tag); if ($('#layer').innerHTML) openSheet(d.w, true); render(); return; }
   if (d.opt !== undefined) return pickOpt(+d.opt);
   if (d.bar !== undefined) { S.statSel = +d.bar; return render(); }
+  if (d.adv !== undefined) { S.settings.advanceDelay = +d.adv; saveSettings(); return render(); }
   if (d.size) { S.settings.sessionSize = +d.size; saveSettings(); return render(); }
   if (d.wtag) { S.wrongTag = d.wtag; S.wrongDay = 'all'; return render(); }
   if (d.word) return openSheet(d.word);
